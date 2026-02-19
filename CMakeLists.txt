@@ -1,6 +1,7 @@
-cmake_minimum_required(VERSION 3.19)
+cmake_minimum_required(VERSION 3.29)
 project(VulkanRenderer)
 set(CMAKE_CXX_STANDARD 20)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
 #Library
 find_package(Vulkan REQUIRED)#Vulkan
 #FetchContent
@@ -88,4 +89,5 @@ endif()
 set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR})
 target_include_directories(${PROJECT_NAME} PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/src/
-    )
+    ${Vulkan_INCLUDE_DIRS}
+)
