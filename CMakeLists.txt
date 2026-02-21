@@ -1,7 +1,8 @@
-cmake_minimum_required(VERSION 3.29)
+cmake_minimum_required(VERSION 4.2)
 project(VulkanRenderer)
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
+set(CMAKE_CXX_EXTENSIONS OFF)
 #Library
 find_package(Vulkan REQUIRED)#Vulkan
 #FetchContent
@@ -70,11 +71,11 @@ add_executable(${PROJECT_NAME} ${SOURCES})
 #build
 if(WIN32)
     target_link_libraries(${PROJECT_NAME} PRIVATE
-        Vulkan::Vulkan
         glfw
         glm
         IMGUILIB
         STBLIB
+        Vulkan::Vulkan
     )
     set_target_properties(${PROJECT_NAME} PROPERTIES
         RUNTIME_OUTPUT_DIRECTORY   "${CMAKE_SOURCE_DIR}/bin"
