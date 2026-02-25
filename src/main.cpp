@@ -62,8 +62,11 @@ class TriangleVulkan
 												static_cast<uint32_t>(requiredExtensions.size()),
 												requiredExtensions.data()};
 			instance = vk::raii::Instance(context, createInfo);
-			// 
+			//ValidationLayers
 			SetupDebugMessenger();
+			//PhsicalDevice
+			SetupPhysicalDevice();
+
 		}
 		void Loop()
 		{
@@ -98,6 +101,25 @@ class TriangleVulkan
 			debugUtilsMessengerCreateInfoEXT.pfnUserCallback = &TriangleVulkan::debugCallback;
 			debugMessenger = instance.createDebugUtilsMessengerEXT(debugUtilsMessengerCreateInfoEXT);
 		}
+		void SetupPhysicalDevice(){
+			std::vector<vk::raii::PhysicalDevice> devices = instance.enumeratePhysicalDevices();
+			const auto devIter = std::ranges::find_if(devices,[&](auto const& device){
+				bool supportsVulkan1_3 = device.getProperties().apiVersion >= VK_API_VERSION_1_3;
+				auto queueFamilies = device.getQueueFamilyProperties();
+				bool supportsGraphics = std::ranges::any_of(queueFamilies,[](auto const& qfp){return !!(qfp.queueFlags & vk::QueueFlagBits::eGraphics);});
+				auto availableDeviceExtensions = device.enumerateDeviceExtensionProperties();
+				bool supportsAllRequiredExtensions = std::ranges::all_of(requiredDeviceExtension,[&availableDeviceExtensions](auto const&requiredDeviceExtension){return std::ranges::any_of(availableDeviceExtensions,[requiredDeviceExtension](auto const& availableDeviceExtension){return strcmp(availableDeviceExtension.extensionName, requiredDeviceExtension) == 0;});});
+                auto features = device.template getFeatures2<vk::PhysicalDeviceFeatures2, vk::PhysicalDeviceVulkan13Features, vk::PhysicalDeviceExtendedDynamicStateFeaturesEXT>();
+                bool supportsRequiredFeatures = features.template get<vk::PhysicalDeviceVulkan13Features>().dynamicRendering &&
+                                                features.template get<vk::PhysicalDeviceExtendedDynamicStateFeaturesEXT>().extendedDynamicState;
+                return supportsVulkan1_3 && supportsGraphics && supportsAllRequiredExtensions && supportsRequiredFeatures;
+			});
+			if (devIter != devices.end())
+				physicalDevice = *devIter;
+			else
+				throw std::runtime_error("failed to find a suitable GPU!");
+		}
+
 		static VKAPI_ATTR vk::Bool32 VKAPI_CALL debugCallback(vk::DebugUtilsMessageSeverityFlagBitsEXT severity, vk::DebugUtilsMessageTypeFlagsEXT type, const vk::DebugUtilsMessengerCallbackDataEXT *pCallbackData, void *)
 		{
 			if (severity == vk::DebugUtilsMessageSeverityFlagBitsEXT::eError || severity == vk::DebugUtilsMessageSeverityFlagBitsEXT::eWarning)
@@ -113,6 +135,10 @@ class TriangleVulkan
 		vk::raii::Context context;
 		vk::raii::Instance instance = nullptr;
 		vk::raii::DebugUtilsMessengerEXT debugMessenger = nullptr;
+
+		vk::raii::PhysicalDevice physicalDevice = nullptr;
+		std::vector<const char*> requiredDeviceExtension = {
+			vk::KHRSwapchainExtensionName};
 
 };
 
