@@ -66,6 +66,8 @@ class TriangleVulkan
 			SetupDebugMessenger();
 			//PhsicalDevice
 			SetupPhysicalDevice();
+			//LogicalDevice and Queue
+			CreateLogicalDevice();
 
 		}
 		void Loop()
@@ -119,6 +121,40 @@ class TriangleVulkan
 			else
 				throw std::runtime_error("failed to find a suitable GPU!");
 		}
+		void CreateLogicalDevice(){
+			std::vector<vk::QueueFamilyProperties> queueFamilyProperties = physicalDevice.getQueueFamilyProperties();
+			auto graphicsQueueFamilyProperty = std::ranges::find_if(queueFamilyProperties,[](auto const&qfp){return (qfp.queueFlags & vk::QueueFlagBits::eGraphics) != static_cast<vk::QueueFlags>(0);});
+			assert(graphicsQueueFamilyProperty != queueFamilyProperties.end() && "No graphics queue family found!");
+			auto graphicsIndex = static_cast<uint32_t>(std::distance(queueFamilyProperties.begin(), graphicsQueueFamilyProperty));
+			
+			//query vulakn
+			vk::PhysicalDeviceVulkan13Features pv13;
+			pv13.dynamicRendering = true;
+			vk::PhysicalDeviceExtendedDynamicStateFeaturesEXT pded;
+			pded.extendedDynamicState = true;
+			vk::StructureChain<vk::PhysicalDeviceFeatures2, vk::PhysicalDeviceVulkan13Features, vk::PhysicalDeviceExtendedDynamicStateFeaturesEXT> featureChain =
+			{
+				{},
+				pv13,
+				pded
+			};
+			// create a Device
+			float queuePriority = 0.5f;
+			vk::DeviceQueueCreateInfo deviceQueueCreateInfo;
+			deviceQueueCreateInfo.queueFamilyIndex = graphicsIndex;
+			deviceQueueCreateInfo.queueCount = 1;
+			deviceQueueCreateInfo.pQueuePriorities = &queuePriority;
+
+			vk::DeviceCreateInfo deviceCreateInfo;
+			deviceCreateInfo.queueCreateInfoCount = 1;
+			deviceCreateInfo.pQueueCreateInfos = &deviceQueueCreateInfo;
+			deviceCreateInfo.enabledExtensionCount = static_cast<uint32_t>(requiredDeviceExtension.size());
+			deviceCreateInfo.ppEnabledExtensionNames = requiredDeviceExtension.data();
+			deviceCreateInfo.pNext = &featureChain.get<vk::PhysicalDeviceFeatures2>();
+
+			device = vk::raii::Device(physicalDevice, deviceCreateInfo);
+			graphicsQueue = vk::raii::Queue(device, graphicsIndex, 0);
+		}
 
 		static VKAPI_ATTR vk::Bool32 VKAPI_CALL debugCallback(vk::DebugUtilsMessageSeverityFlagBitsEXT severity, vk::DebugUtilsMessageTypeFlagsEXT type, const vk::DebugUtilsMessengerCallbackDataEXT *pCallbackData, void *)
 		{
@@ -137,6 +173,10 @@ class TriangleVulkan
 		vk::raii::DebugUtilsMessengerEXT debugMessenger = nullptr;
 
 		vk::raii::PhysicalDevice physicalDevice = nullptr;
+		vk::raii::Device device = nullptr;
+
+		vk::raii::Queue graphicsQueue = nullptr;
+
 		std::vector<const char*> requiredDeviceExtension = {
 			vk::KHRSwapchainExtensionName};
 
