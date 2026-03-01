@@ -64,6 +64,8 @@ class TriangleVulkan
 			instance = vk::raii::Instance(context, createInfo);
 			//ValidationLayers
 			SetupDebugMessenger();
+			//Surface
+			CreateSurface();
 			//PhsicalDevice
 			SetupPhysicalDevice();
 			//LogicalDevice and Queue
@@ -103,9 +105,40 @@ class TriangleVulkan
 			debugUtilsMessengerCreateInfoEXT.pfnUserCallback = &TriangleVulkan::debugCallback;
 			debugMessenger = instance.createDebugUtilsMessengerEXT(debugUtilsMessengerCreateInfoEXT);
 		}
+		void CreateSurface(){
+			VkSurfaceKHR _surface;
+			if(glfwCreateWindowSurface(*instance, window, nullptr, &_surface) !=0 )
+			{
+				throw std::runtime_error("failed to create window surface!");
+			}
+			surface = vk::raii::SurfaceKHR(instance, _surface);
+		}
 		void SetupPhysicalDevice(){
 			std::vector<vk::raii::PhysicalDevice> devices = instance.enumeratePhysicalDevices();
+			//람다식을 사용해서 그래픽카드와 큐패밀리 확인
 			const auto devIter = std::ranges::find_if(devices,[&](auto const& device){
+				if(enableValidationLayers){
+					auto props = device.getProperties();
+					std::cerr<<"Device: " << props.deviceName << std::endl;;
+
+					std::cerr<<"Vulkan Version: " 	<<VK_VERSION_MAJOR(props.apiVersion)<<"."
+													<<VK_VERSION_MINOR(props.apiVersion)<<"."
+													<<VK_VERSION_PATCH(props.apiVersion)<<std::endl;
+					//
+					auto queProps = device.getQueueFamilyProperties();
+					int count = 0;
+					std::ranges::for_each(queProps,[&count](auto const& queProp){
+						std::string flags;
+						if(queProp.queueFlags & vk::QueueFlagBits::eGraphics)
+							flags += "Graphics ";
+						if(queProp.queueFlags & vk::QueueFlagBits::eCompute)
+							flags += "Compute ";
+						if(queProp.queueFlags & vk::QueueFlagBits::eTransfer)
+							flags += "Transfer ";
+						std::cerr<<"Queue Family["<< count <<"] " <<"Count: " << queProp.queueCount << " | Flags: " << flags << std::endl;
+						count += 1;
+					});					
+				}
 				bool supportsVulkan1_3 = device.getProperties().apiVersion >= VK_API_VERSION_1_3;
 				auto queueFamilies = device.getQueueFamilyProperties();
 				bool supportsGraphics = std::ranges::any_of(queueFamilies,[](auto const& qfp){return !!(qfp.queueFlags & vk::QueueFlagBits::eGraphics);});
@@ -171,6 +204,7 @@ class TriangleVulkan
 		vk::raii::Context context;
 		vk::raii::Instance instance = nullptr;
 		vk::raii::DebugUtilsMessengerEXT debugMessenger = nullptr;
+		vk::raii::SurfaceKHR surface = nullptr;
 
 		vk::raii::PhysicalDevice physicalDevice = nullptr;
 		vk::raii::Device device = nullptr;
