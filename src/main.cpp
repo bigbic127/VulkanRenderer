@@ -72,7 +72,8 @@ class TriangleVulkan
 			CreateLogicalDevice();
 			//SwapChain
 			CreateSwapChain();
-
+			//ImageView
+			CreateImageViews();
 		}
 		void Loop()
 		{
@@ -233,7 +234,6 @@ class TriangleVulkan
 			});
 			return formatIt != availableFormats.end() ? *formatIt : availableFormats[0];
 		}
-
 		vk::Extent2D SelectSwapExtend(const vk::SurfaceCapabilitiesKHR& capabilities){
 			if(capabilities.currentExtent.width != 0xFFFFFFFF)
 				return capabilities.currentExtent;
@@ -242,6 +242,19 @@ class TriangleVulkan
 			return {
 				std::clamp<uint32_t>(width, capabilities.minImageExtent.width, capabilities.maxImageExtent.width),
 				std::clamp<uint32_t>(height, capabilities.minImageExtent.height, capabilities.maxImageExtent.height)};
+		}
+		void CreateImageViews()
+		{
+			assert(swapChainImageViews.empty());
+			vk::ImageViewCreateInfo imageViewCreateinfo{};
+			imageViewCreateinfo.viewType = vk::ImageViewType::e2D;
+			imageViewCreateinfo.format = swapChainSurfaceFormat.format;
+			imageViewCreateinfo.subresourceRange = {vk::ImageAspectFlagBits::eColor, 0, 1, 0, 1};
+			for(auto& image : swapChainImages)
+			{
+				imageViewCreateinfo.image = image;
+				swapChainImageViews.emplace_back(device, imageViewCreateinfo);
+			}
 		}
 		
 		static VKAPI_ATTR vk::Bool32 VKAPI_CALL debugCallback(vk::DebugUtilsMessageSeverityFlagBitsEXT severity, vk::DebugUtilsMessageTypeFlagsEXT type, const vk::DebugUtilsMessengerCallbackDataEXT *pCallbackData, void *)
