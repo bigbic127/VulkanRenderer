@@ -270,12 +270,56 @@ class TriangleVulkan
 			vertShaderStageInfo.stage = vk::ShaderStageFlagBits::eVertex;
 			vertShaderStageInfo.module = shaderModule,
 			vertShaderStageInfo.pName = "vertMain";
+			
 			vk::PipelineShaderStageCreateInfo fragShaderStageInfo{};
 			fragShaderStageInfo.stage = vk::ShaderStageFlagBits::eFragment;
 			fragShaderStageInfo.module = shaderModule;
 			fragShaderStageInfo.pName = "fragMain";
+			
 			vk::PipelineShaderStageCreateInfo shaderStages[] = {vertShaderStageInfo, fragShaderStageInfo};
+			//vertexMerge
+			vk::PipelineVertexInputStateCreateInfo vertexInputInfo;
+			vk::PipelineInputAssemblyStateCreateInfo inputAssembly;
+			inputAssembly.topology = vk::PrimitiveTopology::eTriangleList;
+			
+			vk::PipelineViewportStateCreateInfo viewportState;
+			viewportState.viewportCount = 1;
+			viewportState.scissorCount = 1;
 
+			vk::PipelineRasterizationStateCreateInfo rasterizer;
+			rasterizer.depthClampEnable = vk::False;
+			rasterizer.rasterizerDiscardEnable = vk::False;
+			rasterizer.polygonMode = vk::PolygonMode::eFill;
+			rasterizer.cullMode = vk::CullModeFlagBits::eBack;
+			rasterizer.frontFace = vk::FrontFace::eClockwise;
+			rasterizer.depthBiasEnable = vk::False;
+			rasterizer.depthBiasSlopeFactor = 1.0f;
+			rasterizer.lineWidth = 1.0f;
+
+			vk::PipelineMultisampleStateCreateInfo multisampling;
+			multisampling.rasterizationSamples = vk::SampleCountFlagBits::e1;
+			multisampling.sampleShadingEnable = vk::False;
+
+			vk::PipelineColorBlendAttachmentState colorBlendAttachemnt;
+			colorBlendAttachemnt.blendEnable = vk::False;
+			colorBlendAttachemnt.colorWriteMask = vk::ColorComponentFlagBits::eR | vk::ColorComponentFlagBits::eG | vk::ColorComponentFlagBits::eB | vk::ColorComponentFlagBits::eA;
+			
+			vk::PipelineColorBlendStateCreateInfo colorBlending;
+			colorBlending.logicOpEnable = vk::False;
+			colorBlending.logicOp = vk::LogicOp::eCopy;
+			colorBlending.attachmentCount = 1;
+			colorBlending.pAttachments = &colorBlendAttachemnt;
+
+			std::vector dynamicStates={
+				vk::DynamicState::eViewport,
+				vk::DynamicState::eScissor
+			};
+			vk::PipelineDynamicStateCreateInfo dynamicState;
+			dynamicState.dynamicStateCount = static_cast<uint32_t>(dynamicStates.size());
+			dynamicState.pDynamicStates = dynamicStates.data();
+
+			vk::PipelineLayoutCreateInfo pipeLineLayoutInfo;
+			pipeLineLayout = vk::raii::PipelineLayout(device, pipeLineLayoutInfo);
 		}
 		//반환값을 강제
 		[[nodiscard]] vk::raii::ShaderModule CreateShaderModule(const std::vector<char>& code) const
@@ -325,6 +369,8 @@ class TriangleVulkan
 		vk::SurfaceFormatKHR				swapChainSurfaceFormat;
 		vk::Extent2D						swapChainExtend;
 		std::vector<vk::raii::ImageView>	swapChainImageViews;
+
+		vk::raii::PipelineLayout pipeLineLayout = nullptr;
 
 		std::vector<const char*> requiredDeviceExtension = {
 			vk::KHRSwapchainExtensionName};
