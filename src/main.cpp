@@ -320,6 +320,27 @@ class TriangleVulkan
 
 			vk::PipelineLayoutCreateInfo pipeLineLayoutInfo;
 			pipeLineLayout = vk::raii::PipelineLayout(device, pipeLineLayoutInfo);
+
+			vk::GraphicsPipelineCreateInfo gpinfo;
+			gpinfo.stageCount = 2;
+			gpinfo.pStages = shaderStages;
+			gpinfo.pVertexInputState = &vertexInputInfo;
+			gpinfo.pInputAssemblyState = &inputAssembly;
+			gpinfo.pViewportState = &viewportState;
+			gpinfo.pRasterizationState = &rasterizer;
+			gpinfo.pMultisampleState = &multisampling;
+			gpinfo.pColorBlendState = &colorBlending;
+			gpinfo.pDynamicState = &dynamicState;
+			gpinfo.layout = pipeLineLayout;
+			gpinfo.renderPass = nullptr;
+
+			vk::PipelineRenderingCreateInfo pginfo;
+			pginfo.colorAttachmentCount = 1;
+			pginfo.pColorAttachmentFormats = &swapChainSurfaceFormat.format;
+
+			vk::StructureChain<vk::GraphicsPipelineCreateInfo, vk::PipelineRenderingCreateInfo> pipelineCreateInfoChain = {gpinfo, pginfo};
+			
+			grapicsPipeline = vk::raii::Pipeline(device, nullptr, pipelineCreateInfoChain.get<vk::GraphicsPipelineCreateInfo>());
 		}
 		//반환값을 강제
 		[[nodiscard]] vk::raii::ShaderModule CreateShaderModule(const std::vector<char>& code) const
@@ -370,7 +391,8 @@ class TriangleVulkan
 		vk::Extent2D						swapChainExtend;
 		std::vector<vk::raii::ImageView>	swapChainImageViews;
 
-		vk::raii::PipelineLayout pipeLineLayout = nullptr;
+		vk::raii::PipelineLayout 	pipeLineLayout = nullptr;
+		vk::raii::Pipeline 			grapicsPipeline = nullptr;
 
 		std::vector<const char*> requiredDeviceExtension = {
 			vk::KHRSwapchainExtensionName};
