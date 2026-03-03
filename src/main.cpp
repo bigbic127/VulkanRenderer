@@ -1,4 +1,5 @@
 #include <iostream>
+#include <fstream>
 
 #include <vulkan/vulkan_raii.hpp>
 #define GLFW_INCLUDE_VULKAN
@@ -74,6 +75,8 @@ class TriangleVulkan
 			CreateSwapChain();
 			//ImageView
 			CreateImageViews();
+			//GraphicsPipeline
+			CreateGraphicsPipeline();
 		}
 		void Loop()
 		{
@@ -147,8 +150,9 @@ class TriangleVulkan
 				bool supportsGraphics = std::ranges::any_of(queueFamilies,[](auto const& qfp){return !!(qfp.queueFlags & vk::QueueFlagBits::eGraphics);});
 				auto availableDeviceExtensions = device.enumerateDeviceExtensionProperties();
 				bool supportsAllRequiredExtensions = std::ranges::all_of(requiredDeviceExtension,[&availableDeviceExtensions](auto const&requiredDeviceExtension){return std::ranges::any_of(availableDeviceExtensions,[requiredDeviceExtension](auto const& availableDeviceExtension){return strcmp(availableDeviceExtension.extensionName, requiredDeviceExtension) == 0;});});
-                auto features = device.template getFeatures2<vk::PhysicalDeviceFeatures2, vk::PhysicalDeviceVulkan13Features, vk::PhysicalDeviceExtendedDynamicStateFeaturesEXT>();
-                bool supportsRequiredFeatures = features.template get<vk::PhysicalDeviceVulkan13Features>().dynamicRendering &&
+                auto features = device.template getFeatures2<vk::PhysicalDeviceFeatures2, vk::PhysicalDeviceVulkan11Features, vk::PhysicalDeviceVulkan13Features, vk::PhysicalDeviceExtendedDynamicStateFeaturesEXT>();
+                bool supportsRequiredFeatures = features.template get<vk::PhysicalDeviceVulkan11Features>().shaderDrawParameters &&
+												features.template get<vk::PhysicalDeviceVulkan13Features>().dynamicRendering &&
                                                 features.template get<vk::PhysicalDeviceExtendedDynamicStateFeaturesEXT>().extendedDynamicState;
                 return supportsVulkan1_3 && supportsGraphics && supportsAllRequiredExtensions && supportsRequiredFeatures;
 			});
@@ -164,13 +168,16 @@ class TriangleVulkan
 			auto graphicsIndex = static_cast<uint32_t>(std::distance(queueFamilyProperties.begin(), graphicsQueueFamilyProperty));
 			
 			//query vulakn
+			vk::PhysicalDeviceVulkan11Features pv11;
+			pv11.shaderDrawParameters = true;
 			vk::PhysicalDeviceVulkan13Features pv13;
 			pv13.dynamicRendering = true;
 			vk::PhysicalDeviceExtendedDynamicStateFeaturesEXT pded;
 			pded.extendedDynamicState = true;
-			vk::StructureChain<vk::PhysicalDeviceFeatures2, vk::PhysicalDeviceVulkan13Features, vk::PhysicalDeviceExtendedDynamicStateFeaturesEXT> featureChain =
+			vk::StructureChain<vk::PhysicalDeviceFeatures2, vk::PhysicalDeviceVulkan11Features, vk::PhysicalDeviceVulkan13Features, vk::PhysicalDeviceExtendedDynamicStateFeaturesEXT> featureChain =
 			{
 				{},
+				pv11,
 				pv13,
 				pded
 			};
@@ -256,6 +263,29 @@ class TriangleVulkan
 				swapChainImageViews.emplace_back(device, imageViewCreateinfo);
 			}
 		}
+		void CreateGraphicsPipeline()
+		{
+			vk::raii::ShaderModule shaderModule = CreateShaderModule(readFile("./slang.spv"));
+			vk::PipelineShaderStageCreateInfo vertShaderStageInfo{};
+			vertShaderStageInfo.stage = vk::ShaderStageFlagBits::eVertex;
+			vertShaderStageInfo.module = shaderModule,
+			vertShaderStageInfo.pName = "vertMain";
+			vk::PipelineShaderStageCreateInfo fragShaderStageInfo{};
+			fragShaderStageInfo.stage = vk::ShaderStageFlagBits::eFragment;
+			fragShaderStageInfo.module = shaderModule;
+			fragShaderStageInfo.pName = "fragMain";
+			vk::PipelineShaderStageCreateInfo shaderStages[] = {vertShaderStageInfo, fragShaderStageInfo};
+
+		}
+		//반환값을 강제
+		[[nodiscard]] vk::raii::ShaderModule CreateShaderModule(const std::vector<char>& code) const
+		{
+			vk::ShaderModuleCreateInfo createInfo{};
+			createInfo.codeSize = code.size() * sizeof(char);
+			createInfo.pCode = reinterpret_cast<const uint32_t*>(code.data());
+			vk::raii::ShaderModule shaderModule{device, createInfo};
+			return shaderModule;
+		}
 		
 		static VKAPI_ATTR vk::Bool32 VKAPI_CALL debugCallback(vk::DebugUtilsMessageSeverityFlagBitsEXT severity, vk::DebugUtilsMessageTypeFlagsEXT type, const vk::DebugUtilsMessengerCallbackDataEXT *pCallbackData, void *)
 		{
@@ -265,6 +295,18 @@ class TriangleVulkan
 			}
 
 			return vk::False;
+		}
+
+		static std::vector<char> readFile(const std::string &filename)
+		{
+			std::ifstream file(filename, std::ios::ate | std::ios::binary);
+			if(!file.is_open())
+				throw std::runtime_error("failed to open file!");
+			std::vector<char> buffer(file.tellg());
+			file.seekg(0, std::ios::beg);
+			file.read(buffer.data(), static_cast<std::streamsize>(buffer.size()));
+			file.clear();
+			return buffer;
 		}
 
 	private:
