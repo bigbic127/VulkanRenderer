@@ -13,6 +13,8 @@ const std::vector<char const*> validationLayers = {
 	constexpr bool enableValidationLayers = true;
 #endif
 
+constexpr int WIDTH = 800;
+constexpr int HEIGHT = 600;
 constexpr int MAX_FRAMES_IN_FLIGHT = 2;
 
 class TriangleVulkan
@@ -31,7 +33,7 @@ class TriangleVulkan
 				return false;
 			glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
 			glfwWindowHint(GLFW_RESIZABLE, GLFW_TRUE);
-			window = glfwCreateWindow(800, 600, "Vulkan Triangle", nullptr, nullptr);
+			window = glfwCreateWindow(WIDTH, HEIGHT, "Vulkan Triangle", nullptr, nullptr);
 			if(window == nullptr){
 				glfwTerminate();
 				return false;
@@ -129,14 +131,12 @@ class TriangleVulkan
 			submitInfo.signalSemaphoreCount		= 1;
 			submitInfo.pSignalSemaphores		= &*renderFinishedSemaphores[imageIndex];
 			queue.submit(submitInfo, *inFlightFence[frameIndex]);
-
 			vk::PresentInfoKHR presentInfoKHR;
 			presentInfoKHR.waitSemaphoreCount 	= 1;
 			presentInfoKHR.pWaitSemaphores		= &*renderFinishedSemaphores[imageIndex];
 			presentInfoKHR.swapchainCount		= 1;
 			presentInfoKHR.pSwapchains			= &*swapChain;
 			presentInfoKHR.pImageIndices		= &imageIndex;
-			
 			result = queue.presentKHR(presentInfoKHR);
 			if((result == vk::Result::eSuboptimalKHR) || (result == vk::Result::eErrorOutOfDateKHR) || framebufferResized)
 			{
@@ -148,6 +148,7 @@ class TriangleVulkan
 				assert(result == vk::Result::eSuccess);
 			}
 			frameIndex = (frameIndex + 1) % MAX_FRAMES_IN_FLIGHT;
+			
 		}
 		void Destroy(){
 			glfwDestroyWindow(window);
@@ -238,7 +239,8 @@ class TriangleVulkan
                 auto features = device.template getFeatures2<vk::PhysicalDeviceFeatures2, vk::PhysicalDeviceVulkan11Features, vk::PhysicalDeviceVulkan13Features, vk::PhysicalDeviceExtendedDynamicStateFeaturesEXT>();
                 bool supportsRequiredFeatures = features.template get<vk::PhysicalDeviceVulkan11Features>().shaderDrawParameters &&
 												features.template get<vk::PhysicalDeviceVulkan13Features>().dynamicRendering &&
-                                                features.template get<vk::PhysicalDeviceExtendedDynamicStateFeaturesEXT>().extendedDynamicState;
+												features.template get<vk::PhysicalDeviceVulkan13Features>().synchronization2 &&
+												features.template get<vk::PhysicalDeviceExtendedDynamicStateFeaturesEXT>().extendedDynamicState;
                 return supportsVulkan1_3 && supportsGraphics && supportsAllRequiredExtensions && supportsRequiredFeatures;
 			});
 			if (devIter != devices.end())
@@ -259,6 +261,7 @@ class TriangleVulkan
 			pv11.shaderDrawParameters = true;
 			vk::PhysicalDeviceVulkan13Features pv13;
 			pv13.dynamicRendering = true;
+			pv13.synchronization2 = true;
 			vk::PhysicalDeviceExtendedDynamicStateFeaturesEXT pded;
 			pded.extendedDynamicState = true;
 			vk::StructureChain<vk::PhysicalDeviceFeatures2, vk::PhysicalDeviceVulkan11Features, vk::PhysicalDeviceVulkan13Features, vk::PhysicalDeviceExtendedDynamicStateFeaturesEXT> featureChain =
