@@ -44,7 +44,6 @@ class TriangleVulkan
 		{
 			auto app				= reinterpret_cast<TriangleVulkan*>(glfwGetWindowUserPointer(window));
 			app->framebufferResized = true;
-			std::cerr << "framebufferResizeCallback"<<std::endl;
 		}
 		void InitVulkan(){
 			constexpr vk::ApplicationInfo appInfo{	"Vulkan Triangle",
@@ -97,12 +96,83 @@ class TriangleVulkan
 		{
 			while(!glfwWindowShouldClose(window)){
 				glfwPollEvents();
+				DrawFrame();
 			}
+			device.waitIdle();
+		}
+		void DrawFrame()
+		{
+			auto fenceResult = device.waitForFences(*inFlightFence[frameIndex], vk::True, UINT64_MAX);
+			if(fenceResult != vk::Result::eSuccess)
+				throw std::runtime_error("failed to wait for fence!");
+			auto[result, imageIndex] = swapChain.acquireNextImage(UINT64_MAX, *presentCompleteSemaphores[frameIndex], nullptr);
+			if(result == vk::Result::eErrorOutOfDateKHR)
+			{
+				ReCreateSwapChain();
+				return;
+			}
+			else if(result != vk::Result::eSuccess && result != vk::Result::eSuboptimalKHR)
+			{
+				assert(result != vk::Result::eTimeout || result == vk::Result::eNotReady);
+				throw std::runtime_error("failed to acquire swap chain image!");
+			}
+			device.resetFences(*inFlightFence[frameIndex]);
+			commandBuffers[frameIndex].reset();
+			RecordCommandBuffer(imageIndex);
+			vk::PipelineStageFlags waitDestinationStageMask(vk::PipelineStageFlagBits::eColorAttachmentOutput);
+			vk::SubmitInfo submitInfo;
+			submitInfo.waitSemaphoreCount 		= 1;
+			submitInfo.pWaitSemaphores			= &*presentCompleteSemaphores[frameIndex];
+			submitInfo.pWaitDstStageMask		= &waitDestinationStageMask;
+			submitInfo.commandBufferCount 		= 1;
+			submitInfo.pCommandBuffers			= &*commandBuffers[frameIndex];
+			submitInfo.signalSemaphoreCount		= 1;
+			submitInfo.pSignalSemaphores		= &*renderFinishedSemaphores[imageIndex];
+			queue.submit(submitInfo, *inFlightFence[frameIndex]);
+
+			vk::PresentInfoKHR presentInfoKHR;
+			presentInfoKHR.waitSemaphoreCount 	= 1;
+			presentInfoKHR.pWaitSemaphores		= &*renderFinishedSemaphores[imageIndex];
+			presentInfoKHR.swapchainCount		= 1;
+			presentInfoKHR.pSwapchains			= &*swapChain;
+			presentInfoKHR.pImageIndices		= &imageIndex;
+			
+			result = queue.presentKHR(presentInfoKHR);
+			if((result == vk::Result::eSuboptimalKHR) || (result == vk::Result::eErrorOutOfDateKHR) || framebufferResized)
+			{
+				framebufferResized =false;
+				ReCreateSwapChain();
+			}
+			else
+			{
+				assert(result == vk::Result::eSuccess);
+			}
+			frameIndex = (frameIndex + 1) % MAX_FRAMES_IN_FLIGHT;
 		}
 		void Destroy(){
 			glfwDestroyWindow(window);
 			glfwTerminate();
 		}
+		void CleanupSwapChain()
+		{
+			swapChainImageViews.clear();
+			swapChain = nullptr;
+		}
+		void ReCreateSwapChain()
+		{
+			int w=0, h = 0;
+			glfwGetFramebufferSize(window, &w, &h);
+			while(w == 0 || h == 0)
+			{
+				glfwGetFramebufferSize(window, &w, &h);
+				glfwWaitEvents();
+			}
+			device.waitIdle();
+			CleanupSwapChain();
+			CreateSwapChain();
+			CreateImageViews();
+		}
+		//
 		std::vector<const char*> GetRequiredInstanceExtensions(){
 			uint32_t glfwExtensionCount = 0;
 			auto glfwExtensions = glfwGetRequiredInstanceExtensions(&glfwExtensionCount);
@@ -217,14 +287,14 @@ class TriangleVulkan
 		}
 		void CreateSwapChain(){
 			auto surfaceCapabilities = physicalDevice.getSurfaceCapabilitiesKHR(*surface);
-			swapChainExtend = SelectSwapExtend(surfaceCapabilities);
+			swapChainExtent = SelectSwapExtend(surfaceCapabilities);
 			swapChainSurfaceFormat = SelectSwapSurfaceFormat(physicalDevice.getSurfaceFormatsKHR(*surface));
 			vk::SwapchainCreateInfoKHR swapChainCreateInfo{};
 			swapChainCreateInfo.surface = *surface;
 			swapChainCreateInfo.minImageCount = SelectSwapMinImageCount(surfaceCapabilities);
 			swapChainCreateInfo.imageFormat = swapChainSurfaceFormat.format;
 			swapChainCreateInfo.imageColorSpace = swapChainSurfaceFormat.colorSpace;
-			swapChainCreateInfo.imageExtent = swapChainExtend;
+			swapChainCreateInfo.imageExtent = swapChainExtent;
 			swapChainCreateInfo.imageArrayLayers = 1;
 			swapChainCreateInfo.imageUsage =vk::ImageUsageFlagBits::eColorAttachment;
 			swapChainCreateInfo.imageSharingMode = vk::SharingMode::eExclusive;
@@ -384,9 +454,93 @@ class TriangleVulkan
 			allocInfo.commandBufferCount = MAX_FRAMES_IN_FLIGHT;
 			commandBuffers = vk::raii::CommandBuffers(device, allocInfo);
 		}
+		void RecordCommandBuffer(uint32_t imageIndex)
+		{
+			auto& commandBuffer = commandBuffers[frameIndex];
+			commandBuffer.begin({});
+			TranstionImageLayout(
+									imageIndex,
+									vk::ImageLayout::eUndefined,
+									vk::ImageLayout::eColorAttachmentOptimal,
+									{},
+									vk::AccessFlagBits2::eColorAttachmentWrite,
+									vk::PipelineStageFlagBits2::eColorAttachmentOutput,
+									vk::PipelineStageFlagBits2::eColorAttachmentOutput);
+			vk::ClearValue clearColor = vk::ClearColorValue(1.0f, 1.0f, 1.0f, 1.0f);
+			vk::RenderingAttachmentInfo attachmentInfo;
+			attachmentInfo.imageView	= swapChainImageViews[imageIndex];
+			attachmentInfo.imageLayout	= vk::ImageLayout::eColorAttachmentOptimal;
+			attachmentInfo.loadOp		= vk::AttachmentLoadOp::eClear;
+			attachmentInfo.storeOp		= vk::AttachmentStoreOp::eStore;
+			attachmentInfo.clearValue	= clearColor;
+			vk::RenderingInfo renderingInfo;
+			vk::Rect2D rect;
+			rect.offset = vk::Offset2D{0, 0};
+			rect.extent = swapChainExtent;
+			renderingInfo.renderArea			= rect;
+			renderingInfo.layerCount			= 1;
+			renderingInfo.colorAttachmentCount 	= 1;
+			renderingInfo.pColorAttachments		= &attachmentInfo;
+			commandBuffer.beginRendering(renderingInfo);
+			commandBuffer.bindPipeline(vk::PipelineBindPoint::eGraphics, *grapicsPipeline);
+			commandBuffer.setViewport(0, vk::Viewport(0.0f, 0.0f, static_cast<float>(swapChainExtent.width), static_cast<float>(swapChainExtent.height), 0.0f, 1.0f));
+			commandBuffer.setScissor(0, vk::Rect2D(vk::Offset2D(0, 0), swapChainExtent));
+			commandBuffer.draw(3, 1, 0, 0);
+			commandBuffer.endRendering();
+			TranstionImageLayout(
+									imageIndex,
+									vk::ImageLayout::eColorAttachmentOptimal,
+									vk::ImageLayout::ePresentSrcKHR,
+									vk::AccessFlagBits2::eColorAttachmentWrite,
+									{},
+									vk::PipelineStageFlagBits2::eColorAttachmentOutput,
+									vk::PipelineStageFlagBits2::eBottomOfPipe);
+			commandBuffer.end();
+		}
+		void TranstionImageLayout(
+									uint32_t				imageIndex,
+									vk::ImageLayout			old_layout,
+									vk::ImageLayout			new_layout,
+									vk::AccessFlags2		src_access_mask,
+									vk::AccessFlags2		dst_access_mask,
+									vk::PipelineStageFlags2 src_stage_mask,
+									vk::PipelineStageFlags2 dst_stage_mask)
+		{
+			vk::ImageMemoryBarrier2 barrier;
+			barrier.srcStageMask			= src_stage_mask;
+			barrier.srcAccessMask			= src_access_mask;
+			barrier.dstStageMask			= dst_stage_mask;
+			barrier.dstAccessMask			= dst_access_mask;
+			barrier.oldLayout				= old_layout;
+			barrier.newLayout				= new_layout;
+			barrier.srcQueueFamilyIndex		= VK_QUEUE_FAMILY_IGNORED;
+			barrier.dstQueueFamilyIndex		= VK_QUEUE_FAMILY_IGNORED;
+			barrier.image					= swapChainImages[imageIndex];
+			vk::ImageSubresourceRange subRange;
+			subRange.aspectMask 	= vk::ImageAspectFlagBits::eColor;
+			subRange.baseMipLevel	= 0;
+			subRange.levelCount		= 1;
+			subRange.baseArrayLayer = 0;
+			subRange.layerCount		= 1;
+			barrier.subresourceRange = subRange;
+			vk::DependencyInfo dependencyInfo;
+			dependencyInfo.dependencyFlags = {};
+			dependencyInfo.imageMemoryBarrierCount = 1;
+			dependencyInfo.pImageMemoryBarriers = &barrier;
+			commandBuffers[frameIndex].pipelineBarrier2(dependencyInfo);
+		}
 		void CreateSyncObjects()
 		{
-			
+			assert(presentCompleteSemaphores.empty() && renderFinishedSemaphores.empty() && inFlightFence.empty());
+			for(size_t i = 0; i < swapChainImages.size(); i++)
+				renderFinishedSemaphores.emplace_back(device, vk::SemaphoreCreateInfo());
+			for(size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++)
+			{
+				presentCompleteSemaphores.emplace_back(device, vk::SemaphoreCreateInfo());
+				vk::FenceCreateInfo fenceInfo;
+				fenceInfo.flags = vk::FenceCreateFlagBits::eSignaled;
+				inFlightFence.emplace_back(device, fenceInfo);
+			}
 		}
 
 
@@ -428,15 +582,19 @@ class TriangleVulkan
 		vk::raii::SwapchainKHR 				swapChain 		= nullptr;
 		std::vector<vk::Image>				swapChainImages;
 		vk::SurfaceFormatKHR				swapChainSurfaceFormat;
-		vk::Extent2D						swapChainExtend;
+		vk::Extent2D						swapChainExtent;
 		std::vector<vk::raii::ImageView>	swapChainImageViews;
 		//grapics pipeline
 		vk::raii::PipelineLayout 	pipeLineLayout = nullptr;
 		vk::raii::Pipeline 			grapicsPipeline = nullptr;
 		//conmmand
-		vk::raii::CommandPool commandPool = nullptr;
-		std::vector<vk::raii::CommandBuffer> commandBuffers;
-		//
+		vk::raii::CommandPool 					commandPool = nullptr;
+		std::vector<vk::raii::CommandBuffer> 	commandBuffers;
+		//sync object
+		std::vector<vk::raii::Semaphore> 	presentCompleteSemaphores;
+		std::vector<vk::raii::Semaphore> 	renderFinishedSemaphores;
+		std::vector<vk::raii::Fence> 		inFlightFence;
+		uint32_t							frameIndex = 0;
 
 		bool framebufferResized = false;
 
