@@ -13,6 +13,7 @@ const std::vector<char const*> validationLayers = {
 	constexpr bool enableValidationLayers = true;
 #endif
 
+constexpr int MAX_FRAMES_IN_FLIGHT = 2;
 
 class TriangleVulkan
 {
@@ -29,12 +30,21 @@ class TriangleVulkan
 			if(!glfwInit())
 				return false;
 			glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
+			glfwWindowHint(GLFW_RESIZABLE, GLFW_TRUE);
 			window = glfwCreateWindow(800, 600, "Vulkan Triangle", nullptr, nullptr);
 			if(window == nullptr){
 				glfwTerminate();
 				return false;
 			}
+			glfwSetWindowUserPointer(window, this);
+			glfwSetFramebufferSizeCallback(window, framebufferResizeCallback);
 			return true;
+		}
+		static void framebufferResizeCallback(GLFWwindow* window, int w, int h)
+		{
+			auto app				= reinterpret_cast<TriangleVulkan*>(glfwGetWindowUserPointer(window));
+			app->framebufferResized = true;
+			std::cerr << "framebufferResizeCallback"<<std::endl;
 		}
 		void InitVulkan(){
 			constexpr vk::ApplicationInfo appInfo{	"Vulkan Triangle",
@@ -77,6 +87,11 @@ class TriangleVulkan
 			CreateImageViews();
 			//GraphicsPipeline
 			CreateGraphicsPipeline();
+			//Command
+			CreateCommandPool();
+			CreateCommandBuffer();
+			//SyncObjects
+			CreateSyncObjects();
 		}
 		void Loop()
 		{
@@ -165,8 +180,10 @@ class TriangleVulkan
 			std::vector<vk::QueueFamilyProperties> queueFamilyProperties = physicalDevice.getQueueFamilyProperties();
 			auto graphicsQueueFamilyProperty = std::ranges::find_if(queueFamilyProperties,[](auto const&qfp){return (qfp.queueFlags & vk::QueueFlagBits::eGraphics) != static_cast<vk::QueueFlags>(0);});
 			assert(graphicsQueueFamilyProperty != queueFamilyProperties.end() && "No graphics queue family found!");
-			auto graphicsIndex = static_cast<uint32_t>(std::distance(queueFamilyProperties.begin(), graphicsQueueFamilyProperty));
-			
+			queueIndex = static_cast<uint32_t>(std::distance(queueFamilyProperties.begin(), graphicsQueueFamilyProperty));
+			if(queueIndex == ~0)
+				throw std::runtime_error("Colud not find a queue for graphics and present -> terminating");
+
 			//query vulakn
 			vk::PhysicalDeviceVulkan11Features pv11;
 			pv11.shaderDrawParameters = true;
@@ -184,7 +201,7 @@ class TriangleVulkan
 			// create a Device
 			float queuePriority = 0.5f;
 			vk::DeviceQueueCreateInfo deviceQueueCreateInfo;
-			deviceQueueCreateInfo.queueFamilyIndex = graphicsIndex;
+			deviceQueueCreateInfo.queueFamilyIndex = queueIndex;
 			deviceQueueCreateInfo.queueCount = 1;
 			deviceQueueCreateInfo.pQueuePriorities = &queuePriority;
 
@@ -196,7 +213,7 @@ class TriangleVulkan
 			deviceCreateInfo.pNext = &featureChain.get<vk::PhysicalDeviceFeatures2>();
 
 			device = vk::raii::Device(physicalDevice, deviceCreateInfo);
-			graphicsQueue = vk::raii::Queue(device, graphicsIndex, 0);
+			queue = vk::raii::Queue(device, queueIndex, 0);
 		}
 		void CreateSwapChain(){
 			auto surfaceCapabilities = physicalDevice.getSurfaceCapabilitiesKHR(*surface);
@@ -351,7 +368,28 @@ class TriangleVulkan
 			vk::raii::ShaderModule shaderModule{device, createInfo};
 			return shaderModule;
 		}
-		
+		void CreateCommandPool()
+		{
+			vk::CommandPoolCreateInfo poolInfo;
+			poolInfo.flags = vk::CommandPoolCreateFlagBits::eResetCommandBuffer;
+			poolInfo.queueFamilyIndex = queueIndex;
+			commandPool = vk::raii::CommandPool(device, poolInfo);
+		}
+		void CreateCommandBuffer()
+		{
+			commandBuffers.clear();
+			vk::CommandBufferAllocateInfo allocInfo;
+			allocInfo.commandPool 	= commandPool;
+			allocInfo.level			= vk::CommandBufferLevel::ePrimary;
+			allocInfo.commandBufferCount = MAX_FRAMES_IN_FLIGHT;
+			commandBuffers = vk::raii::CommandBuffers(device, allocInfo);
+		}
+		void CreateSyncObjects()
+		{
+			
+		}
+
+
 		static VKAPI_ATTR vk::Bool32 VKAPI_CALL debugCallback(vk::DebugUtilsMessageSeverityFlagBitsEXT severity, vk::DebugUtilsMessageTypeFlagsEXT type, const vk::DebugUtilsMessengerCallbackDataEXT *pCallbackData, void *)
 		{
 			if (severity == vk::DebugUtilsMessageSeverityFlagBitsEXT::eError || severity == vk::DebugUtilsMessageSeverityFlagBitsEXT::eWarning)
@@ -380,19 +418,27 @@ class TriangleVulkan
 		vk::raii::Instance 					instance 		= nullptr;
 		vk::raii::DebugUtilsMessengerEXT 	debugMessenger 	= nullptr;
 		vk::raii::SurfaceKHR 				surface 		= nullptr;
-		//physical and queue
+		//physical
 		vk::raii::PhysicalDevice 			physicalDevice 	= nullptr;
 		vk::raii::Device 					device 			= nullptr;
-		vk::raii::Queue 					graphicsQueue	= nullptr;
+		//queue
+		vk::raii::Queue 					queue	= nullptr;
+		uint32_t queueIndex = ~0;
 		//swapchain
 		vk::raii::SwapchainKHR 				swapChain 		= nullptr;
 		std::vector<vk::Image>				swapChainImages;
 		vk::SurfaceFormatKHR				swapChainSurfaceFormat;
 		vk::Extent2D						swapChainExtend;
 		std::vector<vk::raii::ImageView>	swapChainImageViews;
-
+		//grapics pipeline
 		vk::raii::PipelineLayout 	pipeLineLayout = nullptr;
 		vk::raii::Pipeline 			grapicsPipeline = nullptr;
+		//conmmand
+		vk::raii::CommandPool commandPool = nullptr;
+		std::vector<vk::raii::CommandBuffer> commandBuffers;
+		//
+
+		bool framebufferResized = false;
 
 		std::vector<const char*> requiredDeviceExtension = {
 			vk::KHRSwapchainExtensionName};
